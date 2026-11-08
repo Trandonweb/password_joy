@@ -59,20 +59,14 @@ const EXPAND = {
 };
 function expandJamo(ch) { return EXPAND[ch] || ch; }
 function decomposeKorean(text) {
-  let out = "", previousWasSyllable = false;
+  let out = "";
   for (const ch of text) {
     const cp = ch.codePointAt(0);
     if (cp >= 0xAC00 && cp <= 0xD7A3) {
       const n = cp - 0xAC00;
       const a = Math.floor(n / 588), b = Math.floor((n % 588) / 28), c = n % 28;
-      // Preserve the original Hangul syllable boundary for unambiguous decoding.
-      if (previousWasSyllable) out += "\u0000";
       out += expandJamo(CHO[a]) + expandJamo(JUNG[b]) + (c ? expandJamo(JONG[c]) : "");
-      previousWasSyllable = true;
-    } else {
-      out += expandJamo(ch);
-      previousWasSyllable = false;
-    }
+    } else out += expandJamo(ch);
   }
   return out;
 }
@@ -158,13 +152,17 @@ function encodePlain(text, version) {
       literalRun = "";
     }
   };
-  for (const ch of Array.from(decomposeKorean(text))) {
-    if (ch === "\u0000") {
+  let previousWasHangulSyllable = false;
+  for (const originalChar of Array.from(text)) {
+    const cp = originalChar.codePointAt(0);
+    const isHangulSyllable = cp >= 0xAC00 && cp <= 0xD7A3;
+    if (isHangulSyllable && previousWasHangulSyllable) {
       flushLiteral();
       flushTokens();
-      segments.push(";");
-      continue;
+      segments.push("//");
     }
+    const decomposed = decomposeKorean(originalChar);
+    for (const ch of Array.from(decomposed)) {
     if (/\s/u.test(ch)) {
       flushLiteral();
       flushTokens();
@@ -179,6 +177,9 @@ function encodePlain(text, version) {
       flushTokens();
       literalRun += ch;
     }
+  }
+    }
+    previousWasHangulSyllable = isHangulSyllable;
   }
   flushLiteral();
   flushTokens();
@@ -206,10 +207,15 @@ function decodeJoy(text, version) {
     if (ch === "v") {
       flushJamo(); out += " "; i++; continue;
     }
-    if (ch === ";") {
-      flushJamo(); i++; continue;
+    if (ch === "/") {
+      if (text[i + 1] === "/") {
+        flushJamo();
+        i += 2;
+      } else {
+        i++;
+      }
+      continue;
     }
-    if (ch === "/") { i++; continue; }
     let token = "";
     for (let j = 0; j < tokenLength && i + j < text.length; j++) {
       const symbol = text[i + j];
@@ -268,7 +274,7 @@ function convertWithSyntax(input, direction, version) {
 function looksLikeCipher(value) {
   const token = version === 2 ? "[._]{7}" : "[._|]{4}";
   const escaped = "\\\\[^\\\\]*\\\\";
-  const expression = new RegExp("^(?:(?:" + token + ")(?:/(?:" + token + "))*(?:" + escaped + ")?|;|v|\\\\s|#.*?#)+$", "u");
+  const expression = new RegExp("^(?:(?:" + token + ")(?:/(?:" + token + "))*(?:" + escaped + ")?|v|\\\\s|#.*?#)+$", "u");
   return expression.test(value) && new RegExp(token, "u").test(value);
 }
 const version = 2;
