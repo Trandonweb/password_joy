@@ -94,7 +94,7 @@ const dictionaryPromise = fetch(KOREAN_DICTIONARY_URL)
     return response.text();
   })
   .then(contents => {
-    for (const rawWord of contents.split(/\\r?\\n/u)) {
+    for (const rawWord of contents.split(/\r?\n/u)) {
       const word = rawWord.trim();
       if (!/^[가-힣]+$/u.test(word)) continue;
       const key = decomposeKorean(word);
