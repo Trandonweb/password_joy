@@ -221,18 +221,21 @@ function decodeJoy(text, version) {
     }
     if (ch === "/") { i++; continue; }
     let token = "";
-    for (let j = 0; j < tokenLength && i + j < text.length; j++) {
-      const symbol = text[i + j];
-      if (!symbolPattern.test(symbol)) break;
-      token += symbol;
+    let cursor = i;
+    // Treat slash as a visual separator, even when an older cipher split a
+    // four-trit character into several shorter slash-separated chunks.
+    while (cursor < text.length && token.length < tokenLength) {
+      if (text[cursor] === "/") { cursor++; continue; }
+      if (!symbolPattern.test(text[cursor])) break;
+      token += text[cursor];
+      cursor++;
     }
     if (token.length === tokenLength) {
       const decoded = decodeToken(token, version);
       if (decoded === null) { flushJamo(); out += token; }
       else if (KOREAN.includes(decoded)) jamoBuffer += decoded;
       else { flushJamo(); out += decoded; }
-      i += tokenLength;
-      if (text[i] === "/") i++;
+      i = cursor;
       continue;
     }
     flushJamo();
@@ -276,7 +279,13 @@ function convertWithSyntax(input, direction, version) {
   return out;
 }
 function looksLikeCipher(value) {
-  const token = version === 2 ? "[._]{7}" : "[._|]{4}";
+  if (version === 3) {
+    // JOY3 also accepts legacy output where slash-separated fragments
+    // collectively form each four-trit character.
+    return /^[._|/v\\s\\\\#A-Za-z0-9+×÷.,!?:-]*$/u.test(value) &&
+      /[._|]{1,}/u.test(value) && (value.includes("/") || /[._|]{4}/u.test(value));
+  }
+  const token = "[._]{7}";
   const escaped = "\\\\[^\\\\]*\\\\";
   const expression = new RegExp("^(?:(?:" + token + ")(?:/(?:" + token + "))*(?:" + escaped + ")?|v|\\\\s|#.*?#)+$", "u");
   return expression.test(value) && new RegExp(token, "u").test(value);
