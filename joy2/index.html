@@ -38,7 +38,7 @@ textarea::placeholder{color:#667894}
 <div class="actions"><button class="copy" id="copy">결과 복사</button></div>
 <div class="notes"><strong>문법 안내</strong><br>
 <code># ... #</code> 주석 영역은 현재 언어의 규칙으로 계속 변환합니다.<br>
-<code>\ ... \</code> 익스케이프 영역은 반대 언어의 문자열로 취급해 내부 내용을 그대로 둡니다.<br>
+<code>\ ... \</code> 익스케이프 영역은 반대 언어의 문자열로 취급합니다. 암호화 결과에는 경계 표시를 유지하고, 복호화 결과에서는 내부 문자열만 남깁니다.<br>
 예: JOY 입력의 <code>\....\</code>는 <code>a</code>가 아니라 문자 <code>....</code>로 처리됩니다.<br>
 JOY2는 문자 인코딩 방식이며, 실제 보안용 암호화 알고리즘은 아닙니다.
 </div>
@@ -156,7 +156,7 @@ function convertWithSyntax(input, direction, version) {
       if (end !== -1) {
         const inner = input.slice(i + 1, end);
         if (marker === "#") out += "#" + convertSegment(inner, direction, version) + "#";
-        else out += "\\" + inner + "\\";
+        else out += direction === "encode" ? "\\" + inner + "\\" : inner;
         i = end + 1;
         continue;
       }
