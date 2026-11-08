@@ -152,35 +152,37 @@ function encodePlain(text, version) {
       literalRun = "";
     }
   };
+
   let previousWasHangulSyllable = false;
   for (const originalChar of Array.from(text)) {
     const cp = originalChar.codePointAt(0);
     const isHangulSyllable = cp >= 0xAC00 && cp <= 0xD7A3;
+
     if (isHangulSyllable && previousWasHangulSyllable) {
       flushLiteral();
       flushTokens();
       segments.push("//");
     }
-    const decomposed = decomposeKorean(originalChar);
-    for (const ch of Array.from(decomposed)) {
-    if (/\s/u.test(ch)) {
-      flushLiteral();
-      flushTokens();
-      if (segments[segments.length - 1] !== "v") segments.push("v");
-      continue;
-    }
-    const token = encodeCharacter(ch, version);
-    if (token !== null) {
-      flushLiteral();
-      tokenRun.push(token);
-    } else {
-      flushTokens();
-      literalRun += ch;
-    }
-  }
+
+    for (const ch of Array.from(decomposeKorean(originalChar))) {
+      if (/\s/u.test(ch)) {
+        flushLiteral();
+        flushTokens();
+        if (segments[segments.length - 1] !== "v") segments.push("v");
+        continue;
+      }
+      const token = encodeCharacter(ch, version);
+      if (token !== null) {
+        flushLiteral();
+        tokenRun.push(token);
+      } else {
+        flushTokens();
+        literalRun += ch;
+      }
     }
     previousWasHangulSyllable = isHangulSyllable;
   }
+
   flushLiteral();
   flushTokens();
   return segments.join("").replace(/(?:v)+$/u, "");
