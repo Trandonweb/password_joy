@@ -136,46 +136,42 @@ function decodeToken(token, version) {
 }
 
 
+
 function encodePlain(text, version) {
-  let out = "", pendingTokens = [], pendingLiteral = "";
+  const segments = [];
+  let tokenRun = [], literalRun = "";
   const flushTokens = () => {
-    if (pendingTokens.length) {
-      if (out && !out.endsWith("v") && !out.endsWith("/")) out += "/";
-      out += pendingTokens.join("/");
-      pendingTokens = [];
+    if (tokenRun.length) {
+      segments.push(tokenRun.join("/"));
+      tokenRun = [];
     }
   };
   const flushLiteral = () => {
-    if (pendingLiteral) {
-      flushTokens();
-      if (out && !out.endsWith("v") && !out.endsWith("/")) out += "";
-      out += "\\" + pendingLiteral + "\\";
-      pendingLiteral = "";
+    if (literalRun) {
+      segments.push("\\" + literalRun + "\\");
+      literalRun = "";
     }
   };
   for (const ch of Array.from(decomposeKorean(text))) {
     if (/\s/u.test(ch)) {
       flushLiteral();
       flushTokens();
-      if (ch === "\n") out += "v";
-      else if (ch === "\r") continue;
-      else pendingLiteral += ch;
+      if (segments[segments.length - 1] !== "v") segments.push("v");
       continue;
     }
     const token = encodeCharacter(ch, version);
     if (token !== null) {
       flushLiteral();
-      pendingTokens.push(token);
+      tokenRun.push(token);
     } else {
       flushTokens();
-      pendingLiteral += ch;
+      literalRun += ch;
     }
   }
   flushLiteral();
   flushTokens();
-  return out.replace(/\/+$/u, "").replace(/v+$/u, "");
+  return segments.join("").replace(/(?:v)+$/u, "");
 }
-
 function decodeJoy(text, version) {
   const tokenLength = version === 2 ? 7 : 4;
   const symbolPattern = version === 2 ? /^[._]$/u : /^[._|]$/u;
