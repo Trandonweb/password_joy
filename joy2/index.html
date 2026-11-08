@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#101827">
+<title>JOY2 변환기</title>
+<style>
+:root{color-scheme:dark;--bg:#0b1220;--panel:#121d30;--panel2:#17243a;--line:#293a55;--text:#eef4ff;--muted:#91a2bd;--accent:#8b9cff;--accent2:#b4c0ff}
+*{box-sizing:border-box}body{margin:0;min-height:100vh;background:radial-gradient(ellipse at 50% -20%,#27365d 0,transparent 55%),var(--bg);color:var(--text);font-family:Inter,Pretendard,system-ui,sans-serif}
+header{height:72px;border-bottom:1px solid #26354d;display:flex;align-items:center;justify-content:space-between;padding:0 max(22px,calc((100vw - 1120px)/2))}
+a{color:inherit;text-decoration:none}.brand{font-weight:850;letter-spacing:-.04em;font-size:21px}.brand span{color:var(--accent2)}.back{color:var(--muted);font-size:14px}
+main{max-width:1120px;margin:54px auto;padding:0 22px}.eyebrow{color:var(--accent2);font-size:12px;font-weight:800;letter-spacing:.16em;text-transform:uppercase}
+h1{font-size:clamp(32px,5vw,48px);letter-spacing:-.055em;margin:10px 0 8px}.sub{color:var(--muted);margin:0 0 32px;line-height:1.6}
+.workspace{display:grid;grid-template-columns:1fr 64px 1fr;align-items:stretch;gap:14px}
+.pane{min-width:0;background:linear-gradient(145deg,#17243a,#101a2b);border:1px solid var(--line);border-radius:20px;overflow:hidden;box-shadow:0 18px 50px #0003}
+.pane-head{height:58px;display:flex;align-items:center;justify-content:space-between;padding:0 18px;border-bottom:1px solid var(--line);font-weight:750}
+.pane-head small{font-size:12px;color:var(--muted);font-weight:500}
+textarea{display:block;width:100%;height:330px;resize:vertical;border:0;outline:0;background:transparent;color:var(--text);font:15px/1.8 ui-monospace,SFMono-Regular,Consolas,monospace;padding:20px}
+textarea::placeholder{color:#667894}
+.output{height:330px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font:15px/1.8 ui-monospace,SFMono-Regular,Consolas,monospace;padding:20px;color:#dce4ff}
+.middle{display:flex;align-items:center;justify-content:center}.swap{width:52px;height:52px;border:1px solid #3a4c70;border-radius:16px;background:#1a2942;color:var(--accent2);font-size:23px;cursor:pointer;transition:.2s}.swap:hover{background:#293b5f;transform:rotate(180deg)}
+.actions{display:flex;justify-content:flex-end;margin-top:16px;gap:10px}.copy{border:0;border-radius:12px;padding:12px 18px;background:var(--accent);color:#11182b;font-weight:800;cursor:pointer}.copy:hover{filter:brightness(1.1)}
+.notes{margin-top:34px;padding:20px 22px;border:1px solid var(--line);border-radius:16px;background:#101a2b;color:var(--muted);font-size:13px;line-height:1.8}.notes strong{color:#dfe6ff}.notes code{color:#d7ddff;background:#26334d;padding:2px 5px;border-radius:5px}
+@media(max-width:720px){main{margin:34px auto}.workspace{grid-template-columns:1fr;gap:10px}.middle{height:46px}.swap{width:44px;height:44px;transform:rotate(90deg)}.swap:hover{transform:rotate(270deg)}textarea,.output{height:220px}header{height:62px}}
+</style>
+</head>
+<body>
+<header><a class="brand" href="../">JOY<span>CODE</span></a><a class="back" href="../">← 버전 선택</a></header>
+<main>
+<div class="eyebrow">JOY CIPHER · VERSION 2</div>
+<h1>JOY2 변환기</h1>
+<p class="sub">입력하는 즉시 반대편에 결과가 표시됩니다. 화살표를 눌러 암호화와 복호화 방향을 바꿔보세요.</p>
+<section class="workspace">
+<div class="pane"><div class="pane-head"><span id="leftTitle">평문</span><small id="leftMeta">입력</small></div><textarea id="source" spellcheck="false" placeholder="여기에 내용을 입력하세요."></textarea></div>
+<div class="middle"><button class="swap" id="swap" aria-label="변환 방향 바꾸기" title="변환 방향 바꾸기">⇄</button></div>
+<div class="pane"><div class="pane-head"><span id="rightTitle">JOY2</span><small>자동 변환 결과</small></div><div class="output" id="result" aria-live="polite"></div></div>
+</section>
+<div class="actions"><button class="copy" id="copy">결과 복사</button></div>
+<div class="notes"><strong>문법 안내</strong><br>
+<code># ... #</code> 주석 영역은 현재 언어의 규칙으로 계속 변환합니다.<br>
+<code>\ ... \</code> 익스케이프 영역은 반대 언어의 문자열로 취급해 내부 내용을 그대로 둡니다.<br>
+예: JOY 입력의 <code>\....\</code>는 <code>a</code>가 아니라 문자 <code>....</code>로 처리됩니다.<br>
+JOY2는 문자 인코딩 방식이며, 실제 보안용 암호화 알고리즘은 아닙니다.
+</div>
+</main>
+<script>
+const ENGLISH = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+const KOREAN = "ㄱㄴㄷㄹㅁㅂㅅㅇㅈㅊㅋㅌㅍㅎㅏㅑㅓㅕㅗㅛㅜㅠㅡㅣ";
+const SPECIAL = "0123456789+-×÷.,!?";
+const CHO = ["ㄱ","ㄲ","ㄴ","ㄷ","ㄸ","ㄹ","ㅁ","ㅂ","ㅃ","ㅅ","ㅆ","ㅇ","ㅈ","ㅉ","ㅊ","ㅋ","ㅌ","ㅍ","ㅎ"];
+const JUNG = ["ㅏ","ㅐ","ㅑ","ㅒ","ㅓ","ㅔ","ㅕ","ㅖ","ㅗ","ㅘ","ㅙ","ㅚ","ㅛ","ㅜ","ㅝ","ㅞ","ㅟ","ㅠ","ㅡ","ㅢ","ㅣ"];
+const JONG = ["","ㄱ","ㄲ","ㄳ","ㄴ","ㄵ","ㄶ","ㄷ","ㄹ","ㄺ","ㄻ","ㄼ","ㄽ","ㄾ","ㄿ","ㅀ","ㅁ","ㅂ","ㅄ","ㅅ","ㅆ","ㅇ","ㅈ","ㅊ","ㅋ","ㅌ","ㅍ","ㅎ"];
+const EXPAND = {
+  "ㄲ":"ㄱㄱ","ㄸ":"ㄷㄷ","ㅃ":"ㅂㅂ","ㅆ":"ㅅㅅ","ㅉ":"ㅈㅈ",
+  "ㅐ":"ㅏㅣ","ㅒ":"ㅑㅣ","ㅔ":"ㅓㅣ","ㅖ":"ㅕㅣ","ㅘ":"ㅗㅏ",
+  "ㅙ":"ㅗㅏㅣ","ㅚ":"ㅗㅣ","ㅝ":"ㅜㅓ","ㅞ":"ㅜㅓㅣ","ㅟ":"ㅜㅣ","ㅢ":"ㅡㅣ",
+  "ㄳ":"ㄱㅅ","ㄵ":"ㄴㅈ","ㄶ":"ㄴㅎ","ㄺ":"ㄹㄱ","ㄻ":"ㄹㅁ","ㄼ":"ㄹㅂ",
+  "ㄽ":"ㄹㅅ","ㄾ":"ㄹㅌ","ㄿ":"ㄹㅍ","ㅀ":"ㄹㅎ","ㅄ":"ㅂㅅ"
+};
+function expandJamo(ch) { return EXPAND[ch] || ch; }
+function decomposeKorean(text) {
+  let out = "";
+  for (const ch of text) {
+    const cp = ch.codePointAt(0);
+    if (cp >= 0xAC00 && cp <= 0xD7A3) {
+      const n = cp - 0xAC00;
+      const a = Math.floor(n / 588), b = Math.floor((n % 588) / 28), c = n % 28;
+      out += expandJamo(CHO[a]) + expandJamo(JUNG[b]) + (c ? expandJamo(JONG[c]) : "");
+    } else out += expandJamo(ch);
+  }
+  return out;
+}
+const syllableCandidates = new Map();
+for (let cp = 0xAC00; cp <= 0xD7A3; cp++) {
+  const n = cp - 0xAC00;
+  const seq = expandJamo(CHO[Math.floor(n / 588)]) +
+    expandJamo(JUNG[Math.floor((n % 588) / 28)]) +
+    (n % 28 ? expandJamo(JONG[n % 28]) : "");
+  if (!syllableCandidates.has(seq)) syllableCandidates.set(seq, []);
+  syllableCandidates.get(seq).push(String.fromCodePoint(cp));
+}
+function composeKorean(jamo) {
+  const dp = Array(jamo.length + 1).fill(null);
+  dp[jamo.length] = { score: 0, value: "" };
+  for (let i = jamo.length - 1; i >= 0; i--) {
+    const ch = jamo[i];
+    const options = [{ len: 1, value: ch, score: 0 }];
+    for (const [seq, syllables] of syllableCandidates) {
+      if (seq.length && jamo.startsWith(seq, i) && dp[i + seq.length]) {
+        options.push({ len: seq.length, value: syllables[0], score: seq.length + dp[i + seq.length].score });
+      }
+    }
+    let best = null;
+    for (const op of options) {
+      const tail = dp[i + op.len];
+      if (!tail) continue;
+      const score = op.score + tail.score;
+      const candidate = { score, value: op.value + tail.value };
+      if (!best || score > best.score) best = candidate;
+    }
+    dp[i] = best || { score: 0, value: ch + (dp[i + 1]?.value || "") };
+  }
+  return dp[0]?.value || "";
+}
+function encodeCharacter(ch, version) {
+  const upper = ch.toUpperCase();
+  let group, index;
+  if (ENGLISH.includes(upper) && upper.length === 1) { group = 0; index = ENGLISH.indexOf(upper); }
+  else if (KOREAN.includes(ch) && ch.length === 1) { group = 1; index = KOREAN.indexOf(ch); }
+  else if (SPECIAL.includes(ch)) { group = 2; index = SPECIAL.indexOf(ch); }
+  else return null;
+  if (version === 2) {
+    const prefix = group === 0 ? "00" : group === 1 ? "11" : "01";
+    return prefix + index.toString(2).padStart(5, "0");
+  }
+  return String(group) + index.toString(3).padStart(3, "0").replaceAll("0",".").replaceAll("1","_").replaceAll("2","|");
+}
+function decodeToken(token, version) {
+  let group, index;
+  if (version === 2) {
+    if (!/^[._]{7}$/.test(token)) return null;
+    const bits = token.replaceAll(".","0").replaceAll("_","1");
+    const prefix = bits.slice(0,2);
+    group = prefix === "00" ? 0 : prefix === "11" ? 1 : prefix === "01" ? 2 : -1;
+    index = parseInt(bits.slice(2), 2);
+  } else {
+    if (!/^[._|]{4}$/.test(token)) return null;
+    const tri = token[0] === "." ? 0 : token[0] === "_" ? 1 : 2;
+    group = tri;
+    index = parseInt(token.slice(1).replaceAll(".","0").replaceAll("_","1").replaceAll("|","2"), 3);
+  }
+  const table = group === 0 ? ENGLISH : group === 1 ? KOREAN : group === 2 ? SPECIAL : "";
+  return table[index] ?? null;
+}
+function encodePlain(text, version) {
+  const jamo = decomposeKorean(text);
+  const words = jamo.trim().split(/\s+/u).filter(Boolean);
+  return words.map(word => Array.from(word).map(ch => encodeCharacter(ch, version) ?? ch).join("/")).join("v");
+}
+function decodeJoy(text, version) {
+  return text.trim().split(/\s*v\s*/u).map(word => {
+    const decoded = word.split("/").map(token => decodeToken(token, version) ?? token).join("");
+    return composeKorean(decoded);
+  }).join(" ");
+}
+function convertSegment(text, direction, version) {
+  return direction === "encode" ? encodePlain(text, version) : decodeJoy(text, version);
+}
+function convertWithSyntax(input, direction, version) {
+  let out = "", i = 0, mode = "normal";
+  while (i < input.length) {
+    const marker = input[i];
+    if (marker === "#" || marker === "\\") {
+      const end = input.indexOf(marker, i + 1);
+      if (end !== -1) {
+        const inner = input.slice(i + 1, end);
+        if (marker === "#") out += "#" + convertSegment(inner, direction, version) + "#";
+        else out += "\\" + inner + "\\";
+        i = end + 1;
+        continue;
+      }
+    }
+    let next = i + 1;
+    while (next < input.length && input[next] !== "#" && input[next] !== "\\") next++;
+    out += convertSegment(input.slice(i, next), direction, version);
+    i = next;
+  }
+  return out;
+}
+const version = 2;
+let direction = "encode";
+const source = document.getElementById("source");
+const result = document.getElementById("result");
+function update(){
+  result.textContent = convertWithSyntax(source.value, direction, version);
+  document.getElementById("leftTitle").textContent = direction === "encode" ? "평문" : "JOY"+version;
+  document.getElementById("rightTitle").textContent = direction === "encode" ? "JOY"+version : "평문";
+  source.placeholder = direction === "encode" ? "평문을 입력하세요." : "JOY2 암호문을 입력하세요.";
+}
+source.addEventListener("input", update);
+document.getElementById("swap").addEventListener("click",()=>{
+  direction = direction === "encode" ? "decode" : "encode";
+  const oldResult = result.textContent;
+  source.value = oldResult;
+  update();
+  source.focus();
+});
+document.getElementById("copy").addEventListener("click",async()=>{
+  const value = result.textContent;
+  try {
+    await navigator.clipboard.writeText(value);
+    const button = document.getElementById("copy");
+    button.textContent = "복사 완료!";
+    setTimeout(()=>button.textContent="결과 복사",1300);
+  } catch { alert("복사할 수 없습니다. 결과를 직접 선택해 복사해 주세요."); }
+});
+update();
+</script>
+</body></html>
