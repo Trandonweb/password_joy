@@ -177,12 +177,11 @@ function update(){
   document.getElementById("leftTitle").textContent = direction === "encode" ? "평문" : "JOY"+version;
   document.getElementById("rightTitle").textContent = direction === "encode" ? "JOY"+version : "평문";
   source.placeholder = direction === "encode" ? "평문을 입력하세요." : "JOY3 암호문을 입력하세요.";
+  document.getElementById("swap").title = direction === "encode" ? "현재: 평문 → JOY3. 눌러서 복호화 방향으로 전환" : "현재: JOY3 → 평문. 눌러서 암호화 방향으로 전환";
 }
 source.addEventListener("input", update);
 document.getElementById("swap").addEventListener("click",()=>{
   direction = direction === "encode" ? "decode" : "encode";
-  const oldResult = result.textContent;
-  source.value = oldResult;
   update();
   source.focus();
 });
