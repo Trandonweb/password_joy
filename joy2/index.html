@@ -181,7 +181,16 @@ function update(){
   document.getElementById("swap").title = direction === "encode" ? "현재: 평문 → JOY2. 눌러서 복호화 방향으로 전환" : "현재: JOY2 → 평문. 눌러서 암호화 방향으로 전환";
 }
 source.addEventListener("input", update);
+function looksLikeCipher(value) {
+  const token = version === 2 ? "[._]{7}" : "[._|]{4}";
+  const visible = value.replace(/\\\\[\\s\\S]*?\\\\/gu, "");
+  const pattern = new RegExp("^\\\\s*(?:" + token + ")(?:/(?: " + token + "|" + token + "))*(?:v(?:" + token + ")(?:/" + token + ")*)*\\\\s*$", "u");
+  return pattern.test(visible);
+}
 document.getElementById("swap").addEventListener("click",()=>{
+  const current = source.value;
+  if (direction === "encode" && !looksLikeCipher(current)) source.value = result.textContent;
+  else if (direction === "decode" && looksLikeCipher(current)) source.value = result.textContent;
   direction = direction === "encode" ? "decode" : "encode";
   update();
   source.focus();
