@@ -134,77 +134,114 @@ function decodeToken(token, version) {
   return table[index] ?? null;
 }
 
+
 function encodePlain(text, version) {
-  let out = "", previousWasToken = false;
-  const chars = Array.from(decomposeKorean(text));
-  for (let i=0; i<chars.length; i++) {
-    const ch = chars[i];
-    if (ch === "\r") continue;
-    if (ch === "\n" || /\s/u.test(ch)) {
-      while (out.endsWith("/")) out = out.slice(0,-1);
-      out += "v";
-      previousWasToken = false;
+  let out = "", pendingTokens = [], pendingLiteral = "";
+  const flushTokens = () => {
+    if (pendingTokens.length) {
+      if (out && !out.endsWith("v") && !out.endsWith("/")) out += "/";
+      out += pendingTokens.join("/");
+      pendingTokens = [];
+    }
+  };
+  const flushLiteral = () => {
+    if (pendingLiteral) {
+      flushTokens();
+      if (out && !out.endsWith("v") && !out.endsWith("/")) out += "";
+      out += "\\" + pendingLiteral + "\\";
+      pendingLiteral = "";
+    }
+  };
+  for (const ch of Array.from(decomposeKorean(text))) {
+    if (/\s/u.test(ch)) {
+      flushLiteral();
+      flushTokens();
+      if (ch === "\n") out += "v";
+      else if (ch === "\r") continue;
+      else pendingLiteral += ch;
       continue;
     }
     const token = encodeCharacter(ch, version);
     if (token !== null) {
-      if (previousWasToken) out += "/";
-      out += token;
-      previousWasToken = true;
+      flushLiteral();
+      pendingTokens.push(token);
     } else {
-      // 지원하지 않는 문자는 익스케이프 안에 원문 그대로 보존한다.
-      out += "\\" + ch + "\\";
-      previousWasToken = false;
+      flushTokens();
+      pendingLiteral += ch;
     }
   }
-  return out.replace(/v+$/u, "");
+  flushLiteral();
+  flushTokens();
+  return out.replace(/\/+$/u, "").replace(/v+$/u, "");
 }
+
 function decodeJoy(text, version) {
   const tokenLength = version === 2 ? 7 : 4;
-  const validSymbols = version === 2 ? /^[._]$/u : /^[._|]$/u;
-  let out = "", i = 0;
+  const symbolPattern = version === 2 ? /^[._]$/u : /^[._|]$/u;
+  let out = "", i = 0, jamoBuffer = "";
+  const flushJamo = () => {
+    if (jamoBuffer) { out += composeKorean(jamoBuffer); jamoBuffer = ""; }
+  };
   while (i < text.length) {
     const ch = text[i];
     if (ch === "\\") {
       const close = text.indexOf("\\", i + 1);
       if (close !== -1) {
+        flushJamo();
         out += text.slice(i + 1, close);
         i = close + 1;
         continue;
       }
-      out += ch; i++; continue;
+      flushJamo(); out += ch; i++; continue;
     }
-    if (ch === "v") { out += " "; i++; continue; }
+    if (ch === "v") {
+      flushJamo(); out += " "; i++; continue;
+    }
     if (ch === "/") { i++; continue; }
-    let candidate = "";
-    for (let j=0; j<tokenLength && i+j<text.length; j++) {
-      if (!validSymbols.test(text[i+j])) break;
-      candidate += text[i+j];
+    let token = "";
+    for (let j = 0; j < tokenLength && i + j < text.length; j++) {
+      const symbol = text[i + j];
+      if (!symbolPattern.test(symbol)) break;
+      token += symbol;
     }
-    if (candidate.length === tokenLength) {
-      const decoded = decodeToken(candidate, version);
-      out += decoded === null ? candidate : decoded;
+    if (token.length === tokenLength) {
+      const decoded = decodeToken(token, version);
+      if (decoded === null) { flushJamo(); out += token; }
+      else if (KOREAN.includes(decoded)) jamoBuffer += decoded;
+      else { flushJamo(); out += decoded; }
       i += tokenLength;
       if (text[i] === "/") i++;
       continue;
     }
-    out += ch; i++;
+    flushJamo();
+    out += ch;
+    i++;
   }
-  return composeKorean(out);
+  flushJamo();
+  return out;
 }
 function convertSegment(text, direction, version) {
   return direction === "encode" ? encodePlain(text, version) : decodeJoy(text, version);
 }
+
 function convertWithSyntax(input, direction, version) {
   let out = "", i = 0;
   while (i < input.length) {
     const marker = input[i];
-    if (marker === "#" || marker === "\\") {
-      const end = input.indexOf(marker, i + 1);
+    if (marker === "#") {
+      const end = input.indexOf("#", i + 1);
       if (end !== -1) {
         const inner = input.slice(i + 1, end);
-        if (marker === "#") out += "#" + convertSegment(inner, direction, version) + "#";
-        else out += direction === "encode" ? "\\" + inner + "\\" : inner;
+        out += "#" + convertSegment(inner, direction, version) + "#";
+        i = end + 1;
+        continue;
+      }
+    }
+    if (marker === "\\") {
+      const end = input.indexOf("\\", i + 1);
+      if (end !== -1) {
+        const inner = input.slice(i + 1, end);
+        out += direction === "encode" ? "\\" + inner + "\\" : inner;
         i = end + 1;
         continue;
       }
