@@ -183,8 +183,8 @@ function update(){
 source.addEventListener("input", update);
 function looksLikeCipher(value) {
   const token = version === 2 ? "[._]{7}" : "[._|]{4}";
-  const visible = value.replace(/\\\\[\\s\\S]*?\\\\/gu, "");
-  const pattern = new RegExp("^\\\\s*(?:" + token + ")(?:/(?: " + token + "|" + token + "))*(?:v(?:" + token + ")(?:/" + token + ")*)*\\\\s*$", "u");
+  const visible = value.replace(/\\[\s\S]*?\\/gu, "");
+  const pattern = new RegExp("^\\s*(?:" + token + ")(?:/" + token + ")*(?:v(?:" + token + ")(?:/" + token + ")*)*\\s*$", "u");
   return pattern.test(visible);
 }
 document.getElementById("swap").addEventListener("click",()=>{
