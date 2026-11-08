@@ -134,22 +134,70 @@ function decodeToken(token, version) {
   const table = group === 0 ? ENGLISH : group === 1 ? KOREAN : group === 2 ? SPECIAL : "";
   return table[index] ?? null;
 }
+
 function encodePlain(text, version) {
-  const jamo = decomposeKorean(text);
-  const words = jamo.trim().split(/\s+/u).filter(Boolean);
-  return words.map(word => Array.from(word).map(ch => encodeCharacter(ch, version) ?? ch).join("/")).join("v");
+  let out = "", previousWasToken = false;
+  const chars = Array.from(decomposeKorean(text));
+  for (let i=0; i<chars.length; i++) {
+    const ch = chars[i];
+    if (ch === "\r") continue;
+    if (ch === "\n" || /\s/u.test(ch)) {
+      while (out.endsWith("/")) out = out.slice(0,-1);
+      out += "v";
+      previousWasToken = false;
+      continue;
+    }
+    const token = encodeCharacter(ch, version);
+    if (token !== null) {
+      if (previousWasToken) out += "/";
+      out += token;
+      previousWasToken = true;
+    } else {
+      // 지원하지 않는 문자는 익스케이프 안에 원문 그대로 보존한다.
+      out += "\\" + ch + "\\";
+      previousWasToken = false;
+    }
+  }
+  return out.replace(/v+$/u, "");
 }
 function decodeJoy(text, version) {
-  return text.trim().split(/\s*v\s*/u).map(word => {
-    const decoded = word.split("/").map(token => decodeToken(token, version) ?? token).join("");
-    return composeKorean(decoded);
-  }).join(" ");
+  const tokenLength = version === 2 ? 7 : 4;
+  const validSymbols = version === 2 ? /^[._]$/u : /^[._|]$/u;
+  let out = "", i = 0;
+  while (i < text.length) {
+    const ch = text[i];
+    if (ch === "\\") {
+      const close = text.indexOf("\\", i + 1);
+      if (close !== -1) {
+        out += text.slice(i + 1, close);
+        i = close + 1;
+        continue;
+      }
+      out += ch; i++; continue;
+    }
+    if (ch === "v") { out += " "; i++; continue; }
+    if (ch === "/") { i++; continue; }
+    let candidate = "";
+    for (let j=0; j<tokenLength && i+j<text.length; j++) {
+      if (!validSymbols.test(text[i+j])) break;
+      candidate += text[i+j];
+    }
+    if (candidate.length === tokenLength) {
+      const decoded = decodeToken(candidate, version);
+      out += decoded === null ? candidate : decoded;
+      i += tokenLength;
+      if (text[i] === "/") i++;
+      continue;
+    }
+    out += ch; i++;
+  }
+  return composeKorean(out);
 }
 function convertSegment(text, direction, version) {
   return direction === "encode" ? encodePlain(text, version) : decodeJoy(text, version);
 }
 function convertWithSyntax(input, direction, version) {
-  let out = "", i = 0, mode = "normal";
+  let out = "", i = 0;
   while (i < input.length) {
     const marker = input[i];
     if (marker === "#" || marker === "\\") {
@@ -169,6 +217,12 @@ function convertWithSyntax(input, direction, version) {
   }
   return out;
 }
+function looksLikeCipher(value) {
+  const token = version === 2 ? "[._]{7}" : "[._|]{4}";
+  const escaped = "\\\\[^\\\\]*\\\\";
+  const expression = new RegExp("^(?:(?:" + token + ")(?:/(?:" + token + "))*(?:" + escaped + ")?|v|\\\\s|#.*?#)+$", "u");
+  return expression.test(value) && new RegExp(token, "u").test(value);
+}
 const version = 2;
 let direction = "encode";
 const source = document.getElementById("source");
@@ -180,17 +234,13 @@ function update(){
   source.placeholder = direction === "encode" ? "평문을 입력하세요." : "JOY2 암호문을 입력하세요.";
   document.getElementById("swap").title = direction === "encode" ? "현재: 평문 → JOY2. 눌러서 복호화 방향으로 전환" : "현재: JOY2 → 평문. 눌러서 암호화 방향으로 전환";
 }
-source.addEventListener("input", update);
-function looksLikeCipher(value) {
-  const token = version === 2 ? "[._]{7}" : "[._|]{4}";
-  const visible = value.replace(/\\[\s\S]*?\\/gu, "");
-  const pattern = new RegExp("^\\s*(?:" + token + ")(?:/" + token + ")*(?:v(?:" + token + ")(?:/" + token + ")*)*\\s*$", "u");
-  return pattern.test(visible);
-}
+
+source.addEventListener("input", () => {
+  if (direction === "encode" && looksLikeCipher(source.value)) direction = "decode";
+  update();
+});
 document.getElementById("swap").addEventListener("click",()=>{
-  const current = source.value;
-  if (direction === "encode" && !looksLikeCipher(current)) source.value = result.textContent;
-  else if (direction === "decode" && looksLikeCipher(current)) source.value = result.textContent;
+  source.value = result.textContent;
   direction = direction === "encode" ? "decode" : "encode";
   update();
   source.focus();
