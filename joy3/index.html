@@ -79,26 +79,27 @@ for (let cp = 0xAC00; cp <= 0xD7A3; cp++) {
   if (!syllableCandidates.has(seq)) syllableCandidates.set(seq, []);
   syllableCandidates.get(seq).push(String.fromCodePoint(cp));
 }
+const syllableTrie = {};
+for (const [seq, syllables] of syllableCandidates) {
+  let node = syllableTrie;
+  for (const ch of seq) node = node[ch] ||= {};
+  node.$ = syllables[0];
+}
 function composeKorean(jamo) {
   const dp = Array(jamo.length + 1).fill(null);
   dp[jamo.length] = { score: 0, value: "" };
   for (let i = jamo.length - 1; i >= 0; i--) {
-    const ch = jamo[i];
-    const options = [{ len: 1, value: ch, score: 0 }];
-    for (const [seq, syllables] of syllableCandidates) {
-      if (seq.length && jamo.startsWith(seq, i) && dp[i + seq.length]) {
-        options.push({ len: seq.length, value: syllables[0], score: seq.length + dp[i + seq.length].score });
+    let best = { score: dp[i + 1].score, value: jamo[i] + dp[i + 1].value };
+    let node = syllableTrie;
+    for (let j = i; j < jamo.length; j++) {
+      node = node[jamo[j]];
+      if (!node) break;
+      if (node.$ && dp[j + 1]) {
+        const candidate = { score: (j - i + 1) + dp[j + 1].score, value: node.$ + dp[j + 1].value };
+        if (candidate.score > best.score) best = candidate;
       }
     }
-    let best = null;
-    for (const op of options) {
-      const tail = dp[i + op.len];
-      if (!tail) continue;
-      const score = op.score + tail.score;
-      const candidate = { score, value: op.value + tail.value };
-      if (!best || score > best.score) best = candidate;
-    }
-    dp[i] = best || { score: 0, value: ch + (dp[i + 1]?.value || "") };
+    dp[i] = best;
   }
   return dp[0]?.value || "";
 }
@@ -113,7 +114,7 @@ function encodeCharacter(ch, version) {
     const prefix = group === 0 ? "00" : group === 1 ? "11" : "01";
     return prefix + index.toString(2).padStart(5, "0");
   }
-  return String(group) + index.toString(3).padStart(3, "0").replaceAll("0",".").replaceAll("1","_").replaceAll("2","|");
+  return (group === 0 ? "." : group === 1 ? "_" : "|") + index.toString(3).padStart(3, "0").replaceAll("0",".").replaceAll("1","_").replaceAll("2","|");
 }
 function decodeToken(token, version) {
   let group, index;
