@@ -85,33 +85,7 @@ for (const [seq, syllables] of syllableCandidates) {
   for (const ch of seq) node = node[ch] ||= {};
   node.$ = syllables[0];
 }
-const dictionaryByJamo = new Map();
-let dictionaryLoaded = false;
-const KOREAN_DICTIONARY_URL = "https://raw.githubusercontent.com/acidsound/korean_wordlist/master/wordslistUnique.txt";
-const dictionaryPromise = fetch(KOREAN_DICTIONARY_URL)
-  .then(response => {
-    if (!response.ok) throw new Error("Korean dictionary could not be loaded");
-    return response.text();
-  })
-  .then(contents => {
-    for (const rawWord of contents.split(/\r?\n/u)) {
-      const word = rawWord.trim();
-      if (!/^[가-힣]+$/u.test(word)) continue;
-      const key = decomposeKorean(word);
-      if (!dictionaryByJamo.has(key)) dictionaryByJamo.set(key, word);
-    }
-    dictionaryLoaded = true;
-    if (typeof update === "function") update();
-  })
-  .catch(() => {
-    // Offline or blocked dictionary: keep the original rule-based decoder as fallback.
-  });
-
 function composeKorean(jamo) {
-  // Prefer an exact dictionary match for the entire decoded word.
-  const dictionaryMatch = dictionaryByJamo.get(jamo);
-  if (dictionaryMatch) return dictionaryMatch;
-
   const dp = Array(jamo.length + 1).fill(null);
   dp[jamo.length] = { score: 0, value: "" };
   for (let i = jamo.length - 1; i >= 0; i--) {
@@ -177,22 +151,37 @@ function encodePlain(text, version) {
       literalRun = "";
     }
   };
-  for (const ch of Array.from(decomposeKorean(text))) {
-    if (/\s/u.test(ch)) {
+
+  let previousWasHangulSyllable = false;
+  for (const originalChar of Array.from(text)) {
+    const cp = originalChar.codePointAt(0);
+    const isHangulSyllable = cp >= 0xAC00 && cp <= 0xD7A3;
+
+    if (isHangulSyllable && previousWasHangulSyllable) {
       flushLiteral();
       flushTokens();
-      if (segments[segments.length - 1] !== "v") segments.push("v");
-      continue;
+      segments.push("//");
     }
-    const token = encodeCharacter(ch, version);
-    if (token !== null) {
-      flushLiteral();
-      tokenRun.push(token);
-    } else {
-      flushTokens();
-      literalRun += ch;
+
+    for (const ch of Array.from(decomposeKorean(originalChar))) {
+      if (/\s/u.test(ch)) {
+        flushLiteral();
+        flushTokens();
+        if (segments[segments.length - 1] !== "v") segments.push("v");
+        continue;
+      }
+      const token = encodeCharacter(ch, version);
+      if (token !== null) {
+        flushLiteral();
+        tokenRun.push(token);
+      } else {
+        flushTokens();
+        literalRun += ch;
+      }
     }
+    previousWasHangulSyllable = isHangulSyllable;
   }
+
   flushLiteral();
   flushTokens();
   return segments.join("").replace(/(?:v)+$/u, "");
@@ -219,23 +208,28 @@ function decodeJoy(text, version) {
     if (ch === "v") {
       flushJamo(); out += " "; i++; continue;
     }
-    if (ch === "/") { i++; continue; }
+    if (ch === "/") {
+      if (text[i + 1] === "/") {
+        flushJamo();
+        i += 2;
+      } else {
+        i++;
+      }
+      continue;
+    }
     let token = "";
-    let cursor = i;
-    // Treat slash as a visual separator, even when an older cipher split a
-    // four-trit character into several shorter slash-separated chunks.
-    while (cursor < text.length && token.length < tokenLength) {
-      if (text[cursor] === "/") { cursor++; continue; }
-      if (!symbolPattern.test(text[cursor])) break;
-      token += text[cursor];
-      cursor++;
+    for (let j = 0; j < tokenLength && i + j < text.length; j++) {
+      const symbol = text[i + j];
+      if (!symbolPattern.test(symbol)) break;
+      token += symbol;
     }
     if (token.length === tokenLength) {
       const decoded = decodeToken(token, version);
       if (decoded === null) { flushJamo(); out += token; }
       else if (KOREAN.includes(decoded)) jamoBuffer += decoded;
       else { flushJamo(); out += decoded; }
-      i = cursor;
+      i += tokenLength;
+      if (text[i] === "/") i++;
       continue;
     }
     flushJamo();
@@ -279,13 +273,7 @@ function convertWithSyntax(input, direction, version) {
   return out;
 }
 function looksLikeCipher(value) {
-  if (version === 3) {
-    // JOY3 also accepts legacy output where slash-separated fragments
-    // collectively form each four-trit character.
-    return /^[._|/v\\s\\\\#A-Za-z0-9+×÷.,!?:-]*$/u.test(value) &&
-      /[._|]{1,}/u.test(value) && (value.includes("/") || /[._|]{4}/u.test(value));
-  }
-  const token = "[._]{7}";
+  const token = version === 2 ? "[._]{7}" : "[._|]{4}";
   const escaped = "\\\\[^\\\\]*\\\\";
   const expression = new RegExp("^(?:(?:" + token + ")(?:/(?:" + token + "))*(?:" + escaped + ")?|v|\\\\s|#.*?#)+$", "u");
   return expression.test(value) && new RegExp(token, "u").test(value);
