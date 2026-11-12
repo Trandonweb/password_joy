@@ -204,6 +204,8 @@ function decodeJoy(text, version) {
   };
   while (i < text.length) {
     const ch = text[i];
+    // Ignore visual whitespace in pasted ciphertext; plaintext spaces use "v".
+    if (/\s/u.test(ch)) { i++; continue; }
     if (ch === "\\") {
       const close = text.indexOf("\\", i + 1);
       if (close !== -1) {
@@ -288,15 +290,16 @@ function convertWithSyntax(input, direction, version) {
   return out;
 }
 function looksLikeCipher(value) {
-  const tokenLength = version === 2 ? 7 : 4;
-  const symbolClass = version === 2 ? "[._]" : "[._|]";
+  const tokenLength = 4;
+  const symbolClass = "[._|]";
+  // Ignore visual separators and ordinary literal text while checking whether
+  // the input contains a complete sequence of JOY tokens.
   const compact = value
     .replace(/\\[\s\S]*?\\/gu, "")
-    .replace(/#/gu, "")
-    .replace(/[\/;v\s]/gu, "");
-  return compact.length >= tokenLength &&
-    compact.length % tokenLength === 0 &&
-    new RegExp("^(?:" + symbolClass + "{" + tokenLength + "})+$", "u").test(compact);
+    .replace(/#[\s\S]*?#/gu, "")
+    .replace(new RegExp("[^" + symbolClass.slice(1, -1) + "]", "gu"), "");
+  return compact.length >= tokenLength * 2 &&
+    compact.length % tokenLength === 0;
 }
 const version = 3;
 let direction = "encode";
