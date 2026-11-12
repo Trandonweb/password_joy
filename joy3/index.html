@@ -298,8 +298,7 @@ function looksLikeCipher(value) {
     .replace(/\\[\s\S]*?\\/gu, "")
     .replace(/#[\s\S]*?#/gu, "")
     .replace(new RegExp("[^" + symbolClass.slice(1, -1) + "]", "gu"), "");
-  return compact.length >= tokenLength * 2 &&
-    compact.length % tokenLength === 0;
+  return compact.length >= tokenLength * 2;
 }
 const version = 3;
 let direction = "encode";
