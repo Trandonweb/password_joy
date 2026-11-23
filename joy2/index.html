@@ -40,7 +40,6 @@ textarea::placeholder{color:#667894}
 <code># ... #</code> 주석 영역은 현재 언어의 규칙으로 계속 변환합니다.<br>
 <code>\ ... \</code> 익스케이프 영역은 반대 언어의 문자열로 취급합니다. 암호화 결과에는 경계 표시를 유지하고, 복호화 결과에서는 내부 문자열만 남깁니다.<br>
 예: JOY 입력의 <code>\....\</code>는 <code>a</code>가 아니라 문자 <code>....</code>로 처리됩니다.<br>
-한글 음절 경계는 <code>;</code>로 구분하며, 문자 토큰 사이의 <code>/</code>와는 다릅니다.<br>
 JOY2는 문자 인코딩 방식이며, 실제 보안용 암호화 알고리즘은 아닙니다.
 </div>
 </main>
@@ -86,14 +85,32 @@ for (const [seq, syllables] of syllableCandidates) {
   for (const ch of seq) node = node[ch] ||= {};
   node.$ = syllables[0];
 }
+const dictionaryByJamo = new Map();
+let dictionaryLoaded = false;
+const KOREAN_DICTIONARY_URL = "https://raw.githubusercontent.com/acidsound/korean_wordlist/master/wordslistUnique.txt";
+const dictionaryPromise = fetch(KOREAN_DICTIONARY_URL)
+  .then(response => {
+    if (!response.ok) throw new Error("Korean dictionary could not be loaded");
+    return response.text();
+  })
+  .then(contents => {
+    for (const rawWord of contents.split(/\r?\n/u)) {
+      const word = rawWord.trim();
+      if (!/^[가-힣]+$/u.test(word)) continue;
+      const key = decomposeKorean(word);
+      if (!dictionaryByJamo.has(key)) dictionaryByJamo.set(key, word);
+    }
+    dictionaryLoaded = true;
+    if (typeof update === "function") update();
+  })
+  .catch(() => {
+    // Offline or blocked dictionary: keep the original rule-based decoder as fallback.
+  });
+
 function composeKorean(jamo) {
-  // Encoded Hangul syllables are separated by ";": prefer an exact syllable match.
-  let exactNode = syllableTrie;
-  for (const ch of jamo) {
-    exactNode = exactNode[ch];
-    if (!exactNode) break;
-  }
-  if (exactNode?.$) return exactNode.$;
+  // Prefer an exact dictionary match for the entire decoded word.
+  const dictionaryMatch = dictionaryByJamo.get(jamo);
+  if (dictionaryMatch) return dictionaryMatch;
 
   const dp = Array(jamo.length + 1).fill(null);
   dp[jamo.length] = { score: 0, value: "" };
@@ -161,37 +178,22 @@ function encodePlain(text, version) {
       literalRun = "";
     }
   };
-
-  let previousWasHangulSyllable = false;
-  for (const originalChar of Array.from(text)) {
-    const cp = originalChar.codePointAt(0);
-    const isHangulSyllable = cp >= 0xAC00 && cp <= 0xD7A3;
-
-    if (isHangulSyllable && previousWasHangulSyllable) {
+  for (const ch of Array.from(decomposeKorean(text))) {
+    if (/\s/u.test(ch)) {
       flushLiteral();
       flushTokens();
-      segments.push(";");
+      if (segments[segments.length - 1] !== "v") segments.push("v");
+      continue;
     }
-
-    for (const ch of Array.from(decomposeKorean(originalChar))) {
-      if (/\s/u.test(ch)) {
-        flushLiteral();
-        flushTokens();
-        if (segments[segments.length - 1] !== "v") segments.push("v");
-        continue;
-      }
-      const token = encodeCharacter(ch, version);
-      if (token !== null) {
-        flushLiteral();
-        tokenRun.push(token);
-      } else {
-        flushTokens();
-        literalRun += ch;
-      }
+    const token = encodeCharacter(ch, version);
+    if (token !== null) {
+      flushLiteral();
+      tokenRun.push(token);
+    } else {
+      flushTokens();
+      literalRun += ch;
     }
-    previousWasHangulSyllable = isHangulSyllable;
   }
-
   flushLiteral();
   flushTokens();
   return segments.join("").replace(/(?:v)+$/u, "");
@@ -205,8 +207,6 @@ function decodeJoy(text, version) {
   };
   while (i < text.length) {
     const ch = text[i];
-    // Ignore visual whitespace in pasted ciphertext; plaintext spaces use "v".
-    if (/\s/u.test(ch)) { i++; continue; }
     if (ch === "\\") {
       const close = text.indexOf("\\", i + 1);
       if (close !== -1) {
@@ -220,21 +220,7 @@ function decodeJoy(text, version) {
     if (ch === "v") {
       flushJamo(); out += " "; i++; continue;
     }
-    if (ch === ";") {
-      flushJamo();
-      i++;
-      continue;
-    }
-    // Accept the previous double-slash boundary format for older messages.
-    if (text.startsWith("//", i)) {
-      flushJamo();
-      i += 2;
-      continue;
-    }
-    if (ch === "/") {
-      i++;
-      continue;
-    }
+    if (ch === "/") { i++; continue; }
     let token = "";
     for (let j = 0; j < tokenLength && i + j < text.length; j++) {
       const symbol = text[i + j];
@@ -247,7 +233,7 @@ function decodeJoy(text, version) {
       else if (KOREAN.includes(decoded)) jamoBuffer += decoded;
       else { flushJamo(); out += decoded; }
       i += tokenLength;
-      if (text[i] === "/" && text[i + 1] !== "/") i++;
+      if (text[i] === "/") i++;
       continue;
     }
     flushJamo();
@@ -291,15 +277,10 @@ function convertWithSyntax(input, direction, version) {
   return out;
 }
 function looksLikeCipher(value) {
-  const tokenLength = 7;
-  const symbolClass = "[._]";
-  // Ignore visual separators and ordinary literal text while checking whether
-  // the input contains a complete sequence of JOY tokens.
-  const compact = value
-    .replace(/\\[\s\S]*?\\/gu, "")
-    .replace(/#[\s\S]*?#/gu, "")
-    .replace(new RegExp("[^" + symbolClass.slice(1, -1) + "]", "gu"), "");
-  return compact.length >= tokenLength * 2;
+  const token = version === 2 ? "[._]{7}" : "[._|]{4}";
+  const escaped = "\\\\[^\\\\]*\\\\";
+  const expression = new RegExp("^(?:(?:" + token + ")(?:/(?:" + token + "))*(?:" + escaped + ")?|v|\\\\s|#.*?#)+$", "u");
+  return expression.test(value) && new RegExp(token, "u").test(value);
 }
 const version = 2;
 let direction = "encode";
